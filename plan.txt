@@ -1,0 +1,14 @@
+#channel[msg_id@sender] message content		typical public channel
+@user[msg_id@sender] message content		user's direct messages
+[server] info stuff				message from server/client with no given id (non reproducable)
+#channel[*salt;verification]			encrypted channel
+
+message id format: 	(trimmed) hash + parent_id 6 bytes (48 bits) each?
+
+/list				requests known public channels (from other users)
+/block <username>		blocks incoming messages from user locally
+/user <username> <pass?>	sets local username
+/users				lists users in channel
+/info <key> <value>		stats about online user count, server details, etc
+/recall <message>		get a message by id; if id is ommited, most recent
+/here				announce presence (for /users)

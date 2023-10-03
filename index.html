@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project</title>
+    <script src="/sha256.js"></script>
+  </head>
+  <body>
+    <ul id="history">
+    </ul>
+    <input type="text" id="textin">
+    <button onclick="send()" id="sendbtn">send</button>
+    <script>
+      var socket;
+      var current_user = localStorage.getItem("user");
+      var messages = {};
+      var tree_children = {};
+      var breeder = null; // next parent
+
+      class Message 
+      {
+        constructor(channel, id, parent, user, content)
+        {
+          this.channel = channel;
+          this.id = id;
+          this.parent = parent;
+          this.user = user;
+          this.content = content;
+          this.real_parent = true;
+
+          if (this.id.length == 0)
+          {
+            if (this.parent.length == 0)
+            {
+              this.parent = CryptoJS.SHA256(crypto.getRandomValues(new Uint8Array(256/8)).toString()).toString().slice(-12);
+              this.real_parent = false;
+            }
+
+            this.id = this.checkID();
+          }
+
+          if (this.id in messages)
+          {
+            messages[this.id].remove()
+          }
+
+          messages[this.id] = this;
+          
+          if (this.parent in tree_children)
+          {
+            tree_children[this.parent].push(this);
+          }
+          else 
+          {
+            tree_children[this.parent] = [this];
+          }
+        }
+
+        remove()
+        {
+          delete messages[this.id];
+          if (tree_children[this.parent].indexOf(this) >= 0)
+          {
+            tree_children[this.parent].splice(tree_children[this.parent].indexOf(this), 1)
+          }
+        }
+
+        checkID()
+        {
+          return CryptoJS.SHA256(this.parent + "@" + this.user + this.content).toString().slice(-this.parent.length);
+        }
+
+        toString()
+        {
+          return this.channel + "[" + this.id + this.parent + "@" + this.user + "]" + this.content;
+        }
+
+        toHTML()
+        {
+          let k = document.createElement("li");
+          k.id = this.id;
+          k.innerText = "[" + this.user + "] " + this.content;
+          return k;
+        }
+
+        isLeaf()
+        {
+          return !(this.id in tree_children) || tree_children[this.id].length == 0;
+        }
+
+        getHeight()
+        {
+          if (this.isLeaf())
+          {
+            return 0;
+          }
+          else
+          {
+            let tallest = 0;
+
+            for (let child of tree_children[this.id])
+            {
+              let childHeight = child.getHeight();
+
+              if (childHeight + 1 > tallest)
+              {
+                tallest = childHeight + 1;
+              }
+            }
+
+            return tallest;
+          }
+        }
+
+        getDepth ()
+        {
+          if (this.parent in messages)
+          {
+            return messages[this.parent].getDepth() + 1;
+          }
+          else
+          {
+            return 0;
+          }
+        }
+
+        getDeep()
+        {
+          if (this.isLeaf())
+          {
+            return this;
+          }
+          else
+          {
+            let tallestChild = this;
+            let tallest = 0;
+
+            for (let child of tree_children[this.id])
+            {
+              let childHeight = child.getHeight();
+
+              if (childHeight + 1 > tallest)
+              {
+                tallest = childHeight + 1;
+                tallestChild = child;
+              }
+            }
+
+            return tallestChild.getDeep();
+          }
+        }
+
+        getRoot()
+        {
+          if (this.parent in messages)
+          {
+            return messages[this.parent].getRoot();
+          }
+          else
+          {
+            return this;
+          }
+        }
+
+        static fromString(str)
+        {
+          let channel = "";
+          let header = "";
+          let content = "";
+          if (str.indexOf("[") >= 0)
+          {
+            channel = str.slice(0, str.indexOf("["));
+            str = str.slice(1 + str.indexOf("["));
+
+            if (str.indexOf("]") >= 0)
+            {
+              header = str.slice(0, str.indexOf("]"));
+              content = str.slice(1 + str.indexOf("]"));
+            }
+          }
+
+          let id = "";
+          let parent = "";
+          if (header.indexOf("@") >= 0)
+          {
+            let hash = header.slice(0, header.indexOf("@"));
+            header = header.slice(1 + header.indexOf("@"));
+
+            id = hash.slice(0, Math.floor(hash.length / 2));
+            parent = hash.slice(Math.floor(hash.length / 2));
+          }
+
+          return new Message(channel, id, parent, header, content);
+        }
+      }
+
+      document.getElementById("textin").onkeypress = (e) => { if (e.key=="Enter") {send();}}
+
+      function show(message)
+      {
+        if (typeof(message) == "string")
+        {
+          message = new Message("", "", "", "CLIENT", message);
+        }
+
+        if (document.getElementById(message.id))
+        {
+          document.getElementById(message.id).remove();
+        }
+
+        console.log(message.toString());
+
+        let node = message.toHTML()
+
+        if (document.getElementById(message.parent))
+        {
+          document.getElementById(message.parent).parentElement.insertBefore(node, document.getElementById(message.parent).nextSibling);
+        }
+        else 
+        {
+          if (message.id in tree_children && tree_children[message.id].length > 0)
+          {
+            let first_child_node = document.getElementById(tree_children[message.id][0].id)
+            document.getElementById(first_child_node.parentElement.insertBefore(node, first_child_node));
+          }
+          else
+          {
+            document.getElementById("history").appendChild(node);
+          }
+        }
+      }
+
+      function open_ws()
+      {
+        socket = new WebSocket("ws://" + location.hostname + ":8765");
+      
+        socket.onmessage = (msg) => 
+        {
+          let message = Message.fromString(msg.data);
+
+          if (message.content[0] == "/")
+          {
+            let command = message.content.split(" ");
+          
+            if (command[0] == "/recall")
+            {
+              if (command.length > 1)
+              {
+                for (let id of command.slice(1))
+                {
+                  if (id in messages && messages[id].real_parent) socket.send(messages[id].toString());
+                }
+              }
+              else
+              {
+                if (breeder.getDepth() > 0) socket.send(breeder.toString());
+              }
+            }
+
+            console.log(message.toString());
+            return false;
+          }
+
+          if (!(message.parent in messages) && message.real_parent && message.getHeight() < 32)
+          {
+            socket.send((new Message("", "", "", current_user, "/recall " + message.parent)).toString());
+          }
+
+          if (message.getDepth() >= breeder.getDepth())
+          {
+            breeder = message;
+          }
+
+          show(message);
+          return false;
+        };
+
+        socket.onopen = () => {
+          document.getElementById("sendbtn").disabled = false;
+          socket.send((new Message("", "", "", current_user, "/recall")).toString());
+        };
+
+        socket.onerror = () => {
+          document.getElementById("sendbtn").disabled = true;
+          show("Connection error; Disconnected.");
+        };
+        
+        socket.onclose=open_ws;
+      }
+      
+      function send()
+      { 
+        let content = document.getElementById("textin").value;
+
+      	if (content.split(" ")[0] == "/user")
+        {
+          current_user = content.split(" ")[1];
+          localStorage.setItem("user", current_user);
+          show("now named @" + current_user);
+          content = "";
+          document.getElementById("textin").value = "";
+        }
+        
+        if (socket.readyState != 1)
+        {
+          document.getElementById("sendbtn").disabled = true;
+          open_ws();
+          return;
+        }
+
+        if (content == "") return;
+
+        if (current_user != "")
+        {
+          let message = new Message("", "", breeder.id, current_user, content);
+          socket.send(message.toString());
+        }
+        else
+        {
+          show("set a username with /user before sending a message");
+        }
+        
+        document.getElementById("textin").value = "";
+      }
+
+      if (current_user == null || current_user == "")
+      {
+        current_user = "";
+        show("set a username with /user before sending a message");
+        document.getElementById("textin").value = "/user ";
+      }
+      else
+      {
+        show("joining as @" + current_user) 
+      }
+
+      breeder = new Message("", "", "", current_user, "");
+      open_ws();
+      
+    </script>
+  </body>
+</html>
