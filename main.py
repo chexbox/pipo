@@ -102,6 +102,7 @@ async def main():
         await asyncio.Future()  # run forever
         
 def http_start():
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     http_server = ThreadingHTTPServer(("", 8080), MyServer)
     print("starting http")
     http_server.serve_forever()
