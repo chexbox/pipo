@@ -1,4 +1,4 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer, HTTPServer
 from threading import Thread
 
 import mimetypes
@@ -23,24 +23,40 @@ class MyServer(BaseHTTPRequestHandler):
         status = 404
         mime = "text/plain"
         content = bytes("404 this page no exist", "utf-8")
+        gzip = False
         
         # filter path to prevent exposing my whole disk
         path = "./www" + ".".join(filter(lambda x: x != "", self.path.split(".")))
         if path[-1] == "/":
             path = path + "index.html"
         
-        print(path)
-        
-        if os.path.exists(path):
-            status = 200
-            mime = mimetypes.guess_type(path)[0]
-            with open(path, "rb") as f:
-                content = f.read()
+        # file in cache?
+        if (path in file_cache and time.time() - file_cache[path]["time"] < 60.0):
+            print("cached:", path)
+            status = file_cache[path]["status"]
+            mime = file_cache[path]["mime"]
+            content = file_cache[path]["content"]
+            gzip = file_cache[path]["gzip"]
+        else: # load file
+            print(path)
+            
+            if os.path.exists(path):
+                status = 200
+                mime = mimetypes.guess_type(path)[0]
+                with open(path, "rb") as f:
+                    content = f.read()
+                    
+            # use gzip?
+            if (len(content) > 5000 and mime.split("/")[0] in ["text", "application"]):
+                content = self.gzipencode(content)
+                gzip = True
+                
+                # save to cache
+            file_cache[path] = { "time": time.time(), "status": status, "mime": mime, "content": content, "gzip": gzip }
         
         self.send_response(status)
         self.send_header("Content-type", mime)
-        if (len(content) > 5000 and mime.split("/")[0] in ["text", "application"]):
-            content = self.gzipencode(content)
+        if gzip:
             self.send_header("Content-Encoding", "gzip")
         
         self.send_header("Content-length", str(len(content)))
@@ -68,6 +84,7 @@ async def handle_ws(websocket):
     
     while True:
         try:
+            # handle all new messages for this connection
             async for message in websocket:
                 if (False):# check structure, moderation
                     await websocket.send("[SERVER]Could not be delivered.")
@@ -85,11 +102,13 @@ async def main():
         await asyncio.Future()  # run forever
         
 def http_start():
-    http_server = HTTPServer(("", 8080), MyServer)
+    http_server = ThreadingHTTPServer(("", 8080), MyServer)
     print("starting http")
     http_server.serve_forever()
+    
 
 if __name__ == "__main__":
+    file_cache = {}
     http_thread = Thread(target=http_start, args=[])
     http_thread.start()
 
