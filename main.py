@@ -25,7 +25,7 @@ class MyServer(BaseHTTPRequestHandler):
         content = bytes("404 this page no exist", "utf-8")
         
         # filter path to prevent exposing my whole disk
-        path = "." + ".".join(filter(lambda x: x != "", self.path.split(".")))
+        path = "./www" + ".".join(filter(lambda x: x != "", self.path.split(".")))
         if path[-1] == "/":
             path = path + "index.html"
         
@@ -63,9 +63,8 @@ async def broadcast(data):
 
 async def handle_ws(websocket):
     await websocket.send("[SERVER]Connected.")
-    if not websocket in connections:
-        print("new ws connection", websocket.remote_address)
-        connections.append(websocket)
+    print("new ws connection", websocket.remote_address)
+    connections.append(websocket)
     
     while True:
         try:
