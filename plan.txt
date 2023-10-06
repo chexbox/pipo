@@ -5,10 +5,19 @@
 
 message id format: 	(trimmed) hash + parent_id 6 bytes (48 bits) each?
 
-/list				requests known public channels (from other users)
-/block <username>		blocks incoming messages from user locally
+		local commands
 /user <username> <pass?>	sets local username
-/users				lists users in channel
+/join <channel>	<pass?>		adds channel to known list, calls /recall for that channel
+/part <channel>			leaves a channel (hides/ignores it, stops responding to commmands in it)
+/block <username>		blocks incoming messages from specified user
+/users				lists users in channel (users are stored anytime they send a command)
+/connect <server>		adds a server connection
+/close <server>			disconnects from a server
+
+		remote commands
+/list				requests known public channels (from other users)
+/crossover			requests server connections for crossover
 /info <key> <value>		stats about online user count, server details, etc
 /recall <message>		get a message by id; if id is ommited, most recent
-/here				announce presence (for /users)
+
+

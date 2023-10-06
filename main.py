@@ -64,34 +64,44 @@ class MyServer(BaseHTTPRequestHandler):
         self.wfile.write(content)
         self.wfile.flush()
 
-connections = []
+channels = {}
 
-async def broadcast(data):
+async def broadcast(data, channel):
     conn_i = 0
-    while conn_i < len(connections):
-        conn = connections[conn_i]
+    while conn_i < len(channels[channel]):
+        conn = channels[channel][conn_i]
         
         if conn.closed:
-            connections.pop(conn_i)
+            channels[channel].pop(conn_i)
         else:
             await conn.send(data)
             conn_i += 1
+            
+    if len(channels[channel]) == 0:
+        del channels[channel]
 
 async def handle_ws(websocket):
-    await websocket.send("[SERVER]Connected.")
     print("new ws connection", websocket.remote_address)
-    connections.append(websocket)
+    
+    await websocket.send("[SERVER]Connected.")
     
     while True:
         try:
             # handle all new messages for this connection
             async for message in websocket:
-                if (False):# check structure, moderation
-                    await websocket.send("[SERVER]Could not be delivered.")
+                if ("]" in message and "[" in message.split("]")[0]):
+                    channel = message.split("[")[0]
+                    if (not channel in channels):
+                        channels[channel] = [websocket]
+                    elif (not websocket in channels[channel]):
+                        channels[channel].append(websocket)
+                    
+                    await broadcast(message, channel)
                 else:
-                    await broadcast(message)
-        except websockets.exceptions.ConnectionClosedError:
-            print("disconnected", websocket.remote_address)
+                    await websocket.send("[SERVER]Could not be delivered.")
+                    
+        except (websockets.exceptions.ConnectionClosedError, ConnectionAbortedError) as e:
+            print("disconnected", websocket.remote_address, e)
             return
         
         # don't eat cpu time with the while loop
@@ -106,7 +116,6 @@ def http_start():
     http_server = ThreadingHTTPServer(("", 8080), MyServer)
     print("starting http")
     http_server.serve_forever()
-    
 
 if __name__ == "__main__":
     file_cache = {}
